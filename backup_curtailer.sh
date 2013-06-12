@@ -37,8 +37,10 @@ EMAIL_PORT=25
 EMAIL_TO=root@local.co.jp
 EMAIL_FROM=root@local.co.jp
 
-
+# Log file name
 LOG_OUTPUT=
+# backup total size
+TOTAL_SIZE=0
 
 #=====================================
 # readConfigFile
@@ -47,10 +49,7 @@ readConfigFile()
 {
     if [[ -f "${CONFIG_FILE}" ]]; then
         source "${CONFIG_FILE}"
-    else
-    	# error log
-    	outputLogFile "error" ""
-    fi
+	fi
 }
 
 #=====================================
@@ -61,7 +60,7 @@ dumpConfiguration()
 	outputLogFile "info" "###Config Check###"
 	outputLogFile "info" "CONFIG_FILE: ${CONFIG_FILE}"
 	outputLogFile "info" "BACKUP_DIR: ${BACKUP_DIR}"
-	outputLogFile "info" "BACKUP_DELETE_SIZE: ${BACKUP_DELETE_SIZE}"
+	outputLogFile "info" "BACKUP_DELETE_SIZE: ${BACKUP_DELETE_SIZE}MByte"
 	outputLogFile "info" "BACKUP_PREFIX: ${BACKUP_PREFIX}"
 
 	outputLogFile "info" "BACKUP_LOG_DIR: ${BACKUP_LOG_DIR}"
@@ -80,19 +79,10 @@ dumpConfiguration()
 }
 
 #=====================================
-# checkLogFileCnt
-#=====================================
-checkLogFileCnt()
-{
-	LOG_LIST=$(ls -t "${BACKUP_LOG_DIR}" | grep "${BACKUP_PREFIX}" * )
-}
-
-#=====================================
 # initLogFile
 #=====================================
 initLogFile()
 {
-	echo "initLogFile()"
 	# no backup directory
 	if [[ -z ${BACKUP_LOG_DIR} ]]; then
 		BACKUP_LOG_DIR=$(cd $(dirname $0);pwd)"/backuplog/"
@@ -101,11 +91,40 @@ initLogFile()
 	# make log file
 	LOG_OUTPUT="${BACKUP_LOG_DIR}/${BACKUP_PREFIX}-$(date +%F_%H-%M-%S)-$$.log"
 	
-	echo "BACKUP_LOG_DIR: ${BACKUP_LOG_DIR}"
-	echo "LOG_OUTPUT: ${LOG_OUTPUT}"
 	touch "${LOG_OUTPUT}"
 	
 	outputLogFile "info" "Start Log..."
+	outputLogFile "info" "Log File: ${LOG_OUTPUT}"
+	
+	checkLogFileCnt
+}
+
+#=====================================
+# checkLogFileCnt
+#=====================================
+checkLogFileCnt()
+{
+	LOG_LIST=$(ls -tr "${BACKUP_LOG_DIR}" | grep "${BACKUP_PREFIX}" )
+	LOG_CNT=$(ls -1tr "${BACKUP_LOG_DIR}" | grep "${BACKUP_PREFIX}" | wc -l )
+	
+	DELETE_NUM=$(( ${LOG_CNT} - ${BACKUP_LOG_CNT} ))
+	outputLogFile "info" "checkLogFileCnt-------------"
+	for file in ${LOG_LIST}; do
+		outputLogFile "info" "Check log file $file"
+	done
+	outputLogFile "info" "checkLogFileCnt End-------------"
+	
+	# delete old log files
+	if [[ ${DELETE_NUM} -gt 0 ]]; then
+		for file in ${LOG_LIST}; do
+			outputLogFile "info" "Delete log file $file"
+			rm "$file"
+			DELETE_NUM=$(( ${DELETE_NUM} - 1 ))
+			if [[ ${DELETE_NUM} -eq 0 ]] ; then
+				break
+			fi
+		done
+	fi
 }
 
 #=====================================
@@ -121,10 +140,6 @@ outputLogFile()
     if [[ -n "${LOG_OUTPUT}" ]] ; then
         echo -e "${TIME} -- ${LOG_TYPE}: ${MSG}" >> "${LOG_OUTPUT}"
     fi
-
-    if [[ "${USE_EMAIL}" -eq 1 ]] ; then
-        echo -ne "${TIME} -- ${LOG_TYPE}: ${MSG}\r\n" >> "${EMAIL_LOG_OUTPUT}"      
-    fi
 }
 
 #=====================================
@@ -133,17 +148,22 @@ outputLogFile()
 getTotalBackupSize()
 {
 	# get backups
-	BACKUP_LIST=$(ls -t "${BACKUP_DIR}" | grep "${BACKUP_PREFIX}" * )
-	TOTAL_SIZE=0
+	BACKUP_LIST=$(ls -tr "${BACKUP_DIR}" | grep "${BACKUP_PREFIX}" )
+	total_size=0
 	for file in ${BACKUP_LIST}; do
 		#directory
 		if [[ -d $file ]]; then
-			TOTAL_SIZE += [[ du -s $file ]]
+			add_size=$(( ls -l ${file} | awk '{ i += $5 } END{print i}' ))
+			total_size=$(( $total_size + $add_size ))
 		#file
 		else
-			TOTAL_SIZE += [[ wc -c < $files ]]
+			add_size=`ls -l ${BACKUP_DIR}/${file} | awk '{ print $5 }'`
+			total_size=$(( $total_size + $add_size))
 		fi
 	done
+	
+	# Mbyte
+	TOTAL_SIZE=$(( ${total_size} / 1048576 ))
 }
 
 #=====================================
@@ -151,25 +171,34 @@ getTotalBackupSize()
 #=====================================
 rotateBackupSize()
 {
+	outputLogFile "info" "backup files curtail start-----"
+
 	getTotalBackupSize
+
+	outputLogFile "info" "backup file total size: ${TOTAL_SIZE}MByte"
 	
-	if [[ ${TOTAL_SIZE} > ${BACKUP_DELETE_SIZE} ]]; then
-		cnt = 0
-		
-		for file in ${BACKUP_LIST}; do
-		
-			if [[ $cnt -eq 1 ]]; then
-				result = test $file -d
-				if [[ $result -eq 0 ]]; then
-					rm -rf "${BACKUP_DIR_PATH}/$file"
-				else
-					rm -f "${BACKUP_DIR_PATH}/$file"
-				fi
-			fi
-			cnt += 1
-		done
+	DELETE_CNT=$(( ${TOTAL_SIZE} - ${BACKUP_DELETE_SIZE} ))
+	
+	if [[ ${DELETE_CNT} -lt 0 ]]; then
+		outputLogFile "info" "didn't delete backup files"
+		return
 	fi
 
+	cnt=0
+	BACKUP_LIST=$(ls -tr "${BACKUP_DIR}" | grep "${BACKUP_PREFIX}" )
+	outputLogFile "info" "delete backup files"
+	
+	for file in ${BACKUP_LIST}; do
+	
+		if [[ $(( $cnt & 1 )) -eq 1 ]]; then
+			outputLogFile "info" "delete backup file:${BACKUP_DIR}/$file"
+			rm -rf ${BACKUP_DIR}/$file
+		fi
+		cnt=$(( $cnt + 1 ))
+	
+	done
+
+	outputLogFile "info" "backup files curtail end-----"
 }
 
 #=====================================
@@ -198,43 +227,45 @@ buildHeaders() {
 }
 
 #=====================================
-# sendErrorMail
+# sendMail
 #=====================================
-sendErrorMail()
+sendMail()
 {
-    #close email message
-    if [[ "${USE_EMAIL}" -eq 1 ]] ; then
-        if /sbin/esxcli network firewall get | grep "Enabled" | grep -q "true" > /dev/null 2>&1; then
-            #validate firewall has email port open for ESXi 5
-            if [[ "${VER}" == "5" ]] ; then
-                /sbin/esxcli network firewall ruleset rule list | grep "${EMAIL_PORT}" > /dev/null 2>&1
-                if [[ $? -eq 1 ]] ; then
-                    logger "info" "ERROR: Please enable firewall rule for email traffic on port ${EMAIL_PORT}\n"
-                    logger "info" "Please refer to ghettoVCB documentation for ESXi 5 firewall configuration\n"
-                fi
-            fi
-        fi
+	if [[ "${USE_EMAIL}" -eq 0 ]] ; then
+		return
+	fi
+	
+	#close email message
+	if /sbin/esxcli network firewall get | grep "Enabled" | grep -q "true" > /dev/null 2>&1; then
+		#validate firewall has email port open for ESXi 5
+		if [[ "${VER}" -== "5" ]] ; then
+			/sbin/esxcli network firewall ruleset rule list | grep "${EMAIL_PORT}" > /dev/null 2>&1
+			if [[ $? -eq 1 ]] ; then
+				outputLogFile "error" "error: Please enable firewall rule for email traffic on port ${EMAIL_PORT}"
+				outputLogFile "error" "Please refer to ghettoVCB documentation for ESXi 5 firewall configuration"
+			fi
+		fi
+	fi
 
-        echo "${EMAIL_TO}" | grep "," > /dev/null 2>&1
-        if [[ $? -eq 0 ]] ; then
-            ORIG_IFS=${IFS}
-            IFS=','
-            for i in ${EMAIL_TO}; do
-                buildHeaders ${i}
-                "${NC_BIN}" -i "${EMAIL_DELAY_INTERVAL}" "${EMAIL_SERVER}" "${EMAIL_PORT}" < "${EMAIL_LOG_CONTENT}" > /dev/null 2>&1
-                if [[ $? -eq 1 ]] ; then
-                    logger "info" "ERROR: Failed to email log output to ${EMAIL_SERVER}:${EMAIL_PORT} to ${EMAIL_TO}\n"
-                fi
-            done
-            unset IFS
-        else
-            buildHeaders ${EMAIL_TO}
-            "${NC_BIN}" -i "${EMAIL_DELAY_INTERVAL}" "${EMAIL_SERVER}" "${EMAIL_PORT}" < "${EMAIL_LOG_CONTENT}" > /dev/null 2>&1
-            if [[ $? -eq 1 ]] ; then
-                logger "info" "ERROR: Failed to email log output to ${EMAIL_SERVER}:${EMAIL_PORT} to ${EMAIL_TO}\n"
-            fi
-        fi
-    fi
+	echo "${EMAIL_TO}" | grep "," > /dev/null 2>&1
+	if [[ $? -eq 0 ]] ; then
+		ORIG_IFS=${IFS}
+		IFS=','
+		for i in ${EMAIL_TO}; do
+			buildHeaders ${i}
+			"${NC_BIN}" -i "${EMAIL_DELAY_INTERVAL}" "${EMAIL_SERVER}" "${EMAIL_PORT}" < "${EMAIL_LOG_CONTENT}" > /dev/null 2>&1
+			if [[ $? -eq 1 ]] ; then
+				outputLogFile "error" "error: Failed to email log output"
+			fi
+		done
+		unset IFS
+	else
+		buildHeaders ${EMAIL_TO}
+		"${NC_BIN}" -i "${EMAIL_DELAY_INTERVAL}" "${EMAIL_SERVER}" "${EMAIL_PORT}" < "${EMAIL_LOG_CONTENT}" > /dev/null 2>&1
+		if [[ $? -eq 1 ]] ; then
+			outputLogFile "error" "error Failed to email log output"
+		fi
+	fi
 }
 
 #========================
@@ -244,3 +275,5 @@ sendErrorMail()
 readConfigFile
 initLogFile
 dumpConfiguration
+rotateBackupSize
+sendMail
