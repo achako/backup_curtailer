@@ -25,7 +25,6 @@ BACKUP_PREFIX=backup
 #-----------------------------
 # directory of log files
 BACKUP_LOG_DIR=./
-# number of save log file
 BACKUP_LOG_CNT=5
 
 #-----------------------------
@@ -37,6 +36,9 @@ EMAIL_SERVER=local
 EMAIL_PORT=25
 EMAIL_TO=root@local.co.jp
 EMAIL_FROM=root@local.co.jp
+
+
+LOG_OUTPUT=
 
 #=====================================
 # readConfigFile
@@ -56,10 +58,25 @@ readConfigFile()
 #=====================================
 dumpConfiguration()
 {
-	echo "CONFIG_FILE: ${CONFIG_FILE}"
-	echo "BACKUP_DIR: ${BACKUP_DIR}"
-	echo "BACKUP_DELETE_SIZE: ${BACKUP_DELETE_SIZE}"
-	echo "BACKUP_PREFIX: ${BACKUP_PREFIX}"
+	outputLogFile "info" "###Config Check###"
+	outputLogFile "info" "CONFIG_FILE: ${CONFIG_FILE}"
+	outputLogFile "info" "BACKUP_DIR: ${BACKUP_DIR}"
+	outputLogFile "info" "BACKUP_DELETE_SIZE: ${BACKUP_DELETE_SIZE}"
+	outputLogFile "info" "BACKUP_PREFIX: ${BACKUP_PREFIX}"
+
+	outputLogFile "info" "BACKUP_LOG_DIR: ${BACKUP_LOG_DIR}"
+	outputLogFile "info" "BACKUP_LOG_CNT: ${BACKUP_LOG_CNT}"
+
+	outputLogFile "info" "USE_EMAIL: ${USE_EMAIL}"
+	if [[ ${USE_EMAIL} -eq 1 ]]; then
+		outputLogFile "info" "EMAIL_SERVER: ${EMAIL_SERVER}"
+		outputLogFile "info" "EMAIL_PORT: ${EMAIL_PORT}"
+		outputLogFile "info" "EMAIL_SERVER: ${EMAIL_SERVER}"
+		outputLogFile "info" "EMAIL_TO: ${EMAIL_TO}"
+		outputLogFile "info" "EMAIL_FROM: ${EMAIL_FROM}"
+	fi
+	outputLogFile "info" "###Config Check End###"
+
 }
 
 #=====================================
@@ -67,8 +84,7 @@ dumpConfiguration()
 #=====================================
 checkLogFileCnt()
 {
-	LOG_LIST=$(ls -t "${BACKUP_LOG_DIR}" | grep "backup" * )
-
+	LOG_LIST=$(ls -t "${BACKUP_LOG_DIR}" | grep "${BACKUP_PREFIX}" * )
 }
 
 #=====================================
@@ -77,6 +93,19 @@ checkLogFileCnt()
 initLogFile()
 {
 	echo "initLogFile()"
+	# no backup directory
+	if [[ -z ${BACKUP_LOG_DIR} ]]; then
+		BACKUP_LOG_DIR=$(cd $(dirname $0);pwd)"/backuplog/"
+		mkdir -p "${BACKUP_LOG_DIR}"
+	fi
+	# make log file
+	LOG_OUTPUT="${BACKUP_LOG_DIR}/${BACKUP_PREFIX}-$(date +%F_%H-%M-%S)-$$.log"
+	
+	echo "BACKUP_LOG_DIR: ${BACKUP_LOG_DIR}"
+	echo "LOG_OUTPUT: ${LOG_OUTPUT}"
+	touch "${LOG_OUTPUT}"
+	
+	outputLogFile "info" "Start Log..."
 }
 
 #=====================================
@@ -87,19 +116,14 @@ outputLogFile()
     LOG_TYPE=$1
     MSG=$2
 
-    if [[ "${LOG_LEVEL}" == "debug" ]] && [[ "${LOG_TYPE}" == "debug" ]] || [[ "${LOG_TYPE}" == "info" ]] || [[ "${LOG_TYPE}" == "dryrun" ]]; then
-        TIME=$(date +%F" "%H:%M:%S)
-        if [[ "${LOG_TO_STDOUT}" -eq 1 ]] ; then
-            echo -e "${TIME} -- ${LOG_TYPE}: ${MSG}"
-        fi
+    TIME=$(date +%F" "%H:%M:%S)
 
-        if [[ -n "${LOG_OUTPUT}" ]] ; then
-            echo -e "${TIME} -- ${LOG_TYPE}: ${MSG}" >> "${LOG_OUTPUT}"
-        fi
+    if [[ -n "${LOG_OUTPUT}" ]] ; then
+        echo -e "${TIME} -- ${LOG_TYPE}: ${MSG}" >> "${LOG_OUTPUT}"
+    fi
 
-        if [[ "${EMAIL_LOG}" -eq 1 ]] ; then
-            echo -ne "${TIME} -- ${LOG_TYPE}: ${MSG}\r\n" >> "${EMAIL_LOG_OUTPUT}"      
-        fi
+    if [[ "${USE_EMAIL}" -eq 1 ]] ; then
+        echo -ne "${TIME} -- ${LOG_TYPE}: ${MSG}\r\n" >> "${EMAIL_LOG_OUTPUT}"      
     fi
 }
 
@@ -113,7 +137,7 @@ getTotalBackupSize()
 	TOTAL_SIZE=0
 	for file in ${BACKUP_LIST}; do
 		#directory
-		if [[test $file -d]] == 0; then
+		if [[ -d $file ]]; then
 			TOTAL_SIZE += [[ du -s $file ]]
 		#file
 		else
@@ -129,15 +153,17 @@ rotateBackupSize()
 {
 	getTotalBackupSize
 	
-	if [[ $TOTAL_SIZE > BACKUP_DELETE_SIZE ]]; then
+	if [[ ${TOTAL_SIZE} > ${BACKUP_DELETE_SIZE} ]]; then
 		cnt = 0
+		
 		for file in ${BACKUP_LIST}; do
-			if[[ cnt -eq 1 ]]; then
+		
+			if [[ $cnt -eq 1 ]]; then
 				result = test $file -d
-				if [[ result -eq 0 ]]; then
-					rm -rf "$BACKUP_DIR_PATH/$file"
+				if [[ $result -eq 0 ]]; then
+					rm -rf "${BACKUP_DIR_PATH}/$file"
 				else
-					rm -f "$BACKUP_DIR_PATH/$file"
+					rm -f "${BACKUP_DIR_PATH}/$file"
 				fi
 			fi
 			cnt += 1
@@ -216,4 +242,5 @@ sendErrorMail()
 #========================
 
 readConfigFile
+initLogFile
 dumpConfiguration
