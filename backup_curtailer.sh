@@ -118,7 +118,7 @@ checkLogFileCnt()
 	if [[ ${DELETE_NUM} -gt 0 ]]; then
 		for file in ${LOG_LIST}; do
 			outputLogFile "info" "Delete log file $file"
-			rm "$file"
+			rm "${BACKUP_LOG_DIR}/$file"
 			DELETE_NUM=$(( ${DELETE_NUM} - 1 ))
 			if [[ ${DELETE_NUM} -eq 0 ]] ; then
 				break
@@ -181,6 +181,9 @@ rotateBackupSize()
 	
 	if [[ ${DELETE_CNT} -lt 0 ]]; then
 		outputLogFile "info" "didn't delete backup files"
+		if [[ ${USE_EMAIL} -eq 1 ]] ; then
+			USE_EMAIL=0
+		fi
 		return
 	fi
 
@@ -199,6 +202,7 @@ rotateBackupSize()
 	done
 
 	outputLogFile "info" "backup files curtail end-----"
+	
 }
 
 #=====================================
@@ -213,7 +217,7 @@ buildHeaders() {
     echo -ne "DATA\r\n" >> "${EMAIL_LOG_HEADER}"
     echo -ne "From: ${EMAIL_FROM}\r\n" >> "${EMAIL_LOG_HEADER}"
     echo -ne "To: ${EMAIL_ADDRESS}\r\n" >> "${EMAIL_LOG_HEADER}"
-    echo -ne "Subject: backup curtail report\r\n" >> "${EMAIL_LOG_HEADER}"
+    echo -ne "Subject: バックアップファイルを削除しました[${BACKUP_PREFIX}]\r\n" >> "${EMAIL_LOG_HEADER}"
     echo -ne "Date: $( date +"%a, %d %b %Y %T %z" )\r\n" >> "${EMAIL_LOG_HEADER}"
     echo -ne "Message-Id: <$( date -u +%Y%m%d%H%M%S ).$( dd if=/dev/urandom bs=6 count=1 2>/dev/null | hexdump -e '/1 "%02X"' )@$( hostname -f )>\r\n" >> "${EMAIL_LOG_HEADER}"
     echo -en "\r\n" >> "${EMAIL_LOG_HEADER}"
