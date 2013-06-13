@@ -39,7 +39,7 @@ Esxi5.1にバックアップされているバックアップファイルを間�
 	/vmfs/volumes/datastore1/ghettoVCB内にコピー
 		cp /etc/vmware/firewall/service.xml /vmfs/volumes/datastore1/ghettoVCB/
 		以下をファイル内に追加する
-		vi /vmfs/volumes/datastore1/ghettoVCB/service.xml
+		vi /vmfs/volumes/datastore1/backup_curtailer/service.xml
 	 
 		(</ConfigRoot>の一つ上)
 		<service id="0033">
@@ -55,16 +55,16 @@ Esxi5.1にバックアップされているバックアップファイルを間�
 		</service>
 
 	コピー元にコピーする
-		cp /etc/vmware/firewall/service.xml /vmfs/volumes/datastore1/ghettoVCB/service.xml
+		cp /etc/vmware/firewall/service.xml /vmfs/volumes/datastore1/backup_curtailer/service.xml
 	 
 	/etc/profile.localを編集
 	このままでは再起動したときに設定が元通りになってしまうので、再起動時の対策をしておく
 		vi /etc/profile.local
 		以下の3行を追加する
 			rm /etc/vmware/firewall/service.xml
-			cp -p /vmfs/volumes/datastore1/ghettoVCB/service.xml /etc/vmware/firewall/service.xml
+			cp -p /vmfs/volumes/datastore1/backup_curtailer/service.xml /etc/vmware/firewall/service.xml
 			esxcli network firewall refresh
-	         「/vmfs/volumes/datastore1/ghettoVCB/service.xml」の部分は先程service.xmlを作成した場所を指定
+	         「/vmfs/volumes/datastore1/backup_curtailer/service.xml」の部分は先程service.xmlを作成した場所を指定
 
 	ネットワークのファイアーウォールルールを再設定
 		esxcli network firewall refresh
