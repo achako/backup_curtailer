@@ -85,7 +85,7 @@ initLogFile()
 {
 	# no backup directory
 	if [[ -z ${BACKUP_LOG_DIR} ]]; then
-		BACKUP_LOG_DIR=$(cd $(dirname $0);pwd)"/backuplog/"
+		BACKUP_LOG_DIR=${WORKDIR}"/backuplog/"
 		mkdir -p "${BACKUP_LOG_DIR}"
 	fi
 	# make log file
@@ -213,17 +213,16 @@ buildHeaders() {
     echo -ne "DATA\r\n" >> "${EMAIL_LOG_HEADER}"
     echo -ne "From: ${EMAIL_FROM}\r\n" >> "${EMAIL_LOG_HEADER}"
     echo -ne "To: ${EMAIL_ADDRESS}\r\n" >> "${EMAIL_LOG_HEADER}"
-    echo -ne "Subject: ghettoVCB - $(hostname -s) ${FINAL_STATUS}\r\n" >> "${EMAIL_LOG_HEADER}"
+    echo -ne "Subject: backup curtail report\r\n" >> "${EMAIL_LOG_HEADER}"
     echo -ne "Date: $( date +"%a, %d %b %Y %T %z" )\r\n" >> "${EMAIL_LOG_HEADER}"
     echo -ne "Message-Id: <$( date -u +%Y%m%d%H%M%S ).$( dd if=/dev/urandom bs=6 count=1 2>/dev/null | hexdump -e '/1 "%02X"' )@$( hostname -f )>\r\n" >> "${EMAIL_LOG_HEADER}"
-    echo -ne "XMailer: ghettoVCB ${VERSION_STRING}\r\n" >> "${EMAIL_LOG_HEADER}"
     echo -en "\r\n" >> "${EMAIL_LOG_HEADER}"
 
-    echo -en ".\r\n" >> "${EMAIL_LOG_OUTPUT}"
-    echo -en "QUIT\r\n" >> "${EMAIL_LOG_OUTPUT}"
-
+    echo -en ".\r\n" >> "${LOG_OUTPUT}"
+    echo -en "QUIT\r\n" >> "${LOG_OUTPUT}"
+    
     cat "${EMAIL_LOG_HEADER}" > "${EMAIL_LOG_CONTENT}"
-    cat "${EMAIL_LOG_OUTPUT}" >> "${EMAIL_LOG_CONTENT}"
+    cat "${LOG_OUTPUT}" >> "${EMAIL_LOG_CONTENT}"
 }
 
 #=====================================
@@ -234,46 +233,61 @@ sendMail()
 	if [[ "${USE_EMAIL}" -eq 0 ]] ; then
 		return
 	fi
-	
+		
 	#close email message
 	if /sbin/esxcli network firewall get | grep "Enabled" | grep -q "true" > /dev/null 2>&1; then
 		#validate firewall has email port open for ESXi 5
-		if [[ "${VER}" -== "5" ]] ; then
-			/sbin/esxcli network firewall ruleset rule list | grep "${EMAIL_PORT}" > /dev/null 2>&1
-			if [[ $? -eq 1 ]] ; then
-				outputLogFile "error" "error: Please enable firewall rule for email traffic on port ${EMAIL_PORT}"
-				outputLogFile "error" "Please refer to ghettoVCB documentation for ESXi 5 firewall configuration"
-			fi
+		/sbin/esxcli network firewall ruleset rule list | grep "${EMAIL_PORT}" > /dev/null 2>&1
+		if [[ $? -eq 1 ]] ; then
+			outputLogFile "error" "error: Please enable firewall rule for email traffic on port ${EMAIL_PORT}"
 		fi
 	fi
 
+    if [[ -f /usr/bin/nc ]] ; then
+        NC_BIN=/usr/bin/nc
+    elif [[ -f /bin/nc ]] ; then
+        NC_BIN=/bin/nc
+    fi
+    
 	echo "${EMAIL_TO}" | grep "," > /dev/null 2>&1
 	if [[ $? -eq 0 ]] ; then
 		ORIG_IFS=${IFS}
 		IFS=','
 		for i in ${EMAIL_TO}; do
 			buildHeaders ${i}
-			"${NC_BIN}" -i "${EMAIL_DELAY_INTERVAL}" "${EMAIL_SERVER}" "${EMAIL_PORT}" < "${EMAIL_LOG_CONTENT}" > /dev/null 2>&1
+			"${NC_BIN}" -i "1" "${EMAIL_SERVER}" "${EMAIL_PORT}" < "${EMAIL_LOG_CONTENT}" > /dev/null 2>&1
 			if [[ $? -eq 1 ]] ; then
-				outputLogFile "error" "error: Failed to email log output"
+				outputLogFile "error" "error: Failed to email log output(1)"
 			fi
 		done
 		unset IFS
 	else
 		buildHeaders ${EMAIL_TO}
-		"${NC_BIN}" -i "${EMAIL_DELAY_INTERVAL}" "${EMAIL_SERVER}" "${EMAIL_PORT}" < "${EMAIL_LOG_CONTENT}" > /dev/null 2>&1
+		"${NC_BIN}" -i "1" "${EMAIL_SERVER}" "${EMAIL_PORT}" < "${EMAIL_LOG_CONTENT}" > /dev/null 2>&1
 		if [[ $? -eq 1 ]] ; then
-			outputLogFile "error" "error Failed to email log output"
+			outputLogFile "error" "error Failed to email log output(2)"
 		fi
 	fi
+	
+	# delete email files
+	rm -rf ${EMAIL_LOG_HEADER}
+	rm -rf ${EMAIL_LOG_OUTPUT}
+	rm -rf ${EMAIL_LOG_CONTENT}
+
 }
 
 #========================
 # Start Script
 #========================
+WORKDIR=$(cd $(dirname $0);pwd)
+
+EMAIL_LOG_HEADER=${WORKDIR}/backup_curtailer-email-$$.header
+EMAIL_LOG_OUTPUT=${WORKDIR}/backup_curtailer-email-$$.log
+EMAIL_LOG_CONTENT=${WORKDIR}/backup_curtailer-email-$$.content
 
 readConfigFile
 initLogFile
 dumpConfiguration
 rotateBackupSize
 sendMail
+
